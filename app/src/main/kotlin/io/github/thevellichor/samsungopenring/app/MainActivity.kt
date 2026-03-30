@@ -61,9 +61,37 @@ class MainActivity : AppCompatActivity() {
 
         webhookInput.setText(prefs.getString(KEY_WEBHOOK_URL, ""))
 
-        // READ_LOGS status
+        // Permissions section
         val readLogsStatus = findViewById<TextView>(R.id.readLogsStatus)
         readLogsStatus.text = ShizukuHelper.getStatusText(this)
+
+        findViewById<MaterialButton>(R.id.shizukuGrantButton).setOnClickListener {
+            if (ShizukuHelper.hasReadLogs(this)) {
+                readLogsStatus.text = "READ_LOGS already granted!"
+                return@setOnClickListener
+            }
+            if (!ShizukuHelper.isShizukuInstalled(this)) {
+                readLogsStatus.text = "Shizuku not installed. Get it from Play Store."
+                return@setOnClickListener
+            }
+            if (!ShizukuHelper.isShizukuRunning()) {
+                readLogsStatus.text = "Shizuku not running. Open Shizuku app and start it."
+                return@setOnClickListener
+            }
+            if (!ShizukuHelper.hasShizukuPermission()) {
+                ShizukuHelper.requestPermission { granted ->
+                    runOnUiThread {
+                        if (granted) {
+                            doShizukuGrant(readLogsStatus)
+                        } else {
+                            readLogsStatus.text = "Shizuku permission denied"
+                        }
+                    }
+                }
+                return@setOnClickListener
+            }
+            doShizukuGrant(readLogsStatus)
+        }
 
         findViewById<MaterialButton>(R.id.copyAdbButton).setOnClickListener {
             ShizukuHelper.copyAdbCommandToClipboard(this)
@@ -433,6 +461,22 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun doShizukuGrant(statusView: TextView) {
+        statusView.text = "Granting READ_LOGS via Shizuku..."
+        EventLog.log(this, "Requesting READ_LOGS via Shizuku UserService")
+
+        ShizukuHelper.bindAndGrant(packageName) { success, message ->
+            runOnUiThread {
+                statusView.text = if (success) {
+                    "READ_LOGS granted!"
+                } else {
+                    "Failed: $message"
+                }
+                EventLog.log(this, "Shizuku result: $message")
+            }
+        }
     }
 
     private fun saveWebhookUrl() {
