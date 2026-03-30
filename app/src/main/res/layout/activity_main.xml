@@ -163,25 +163,24 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Shizuku (Logcat Fallback)"
+            android:text="Advanced (Logcat Fallback)"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
 
         <TextView
-            android:id="@+id/shizukuStatus"
+            android:id="@+id/readLogsStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Checking..."
             android:textSize="14sp"
             android:layout_marginBottom="8dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/shizukuGrantButton"
+            android:id="@+id/copyAdbButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Grant READ_LOGS via Shizuku"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:text="Copy ADB Command"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_marginBottom="24dp" />
 
         <TextView
