@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -26,7 +27,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var statusText: TextView
     private lateinit var webhookInput: TextInputEditText
-    private lateinit var triggersInfo: TextView
+    private lateinit var triggersList: LinearLayout
+    private lateinit var triggersEmpty: TextView
     private lateinit var eventLog: TextView
     private lateinit var triggerManager: TriggerManager
     private var logExpanded = false
@@ -51,7 +53,8 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         webhookInput = findViewById(R.id.webhookUrlInput)
-        triggersInfo = findViewById(R.id.triggersInfo)
+        triggersList = findViewById(R.id.triggersList)
+        triggersEmpty = findViewById(R.id.triggersEmpty)
         eventLog = findViewById(R.id.eventLog)
 
         webhookInput.setText(prefs.getString(KEY_WEBHOOK_URL, ""))
@@ -86,8 +89,6 @@ class MainActivity : AppCompatActivity() {
             EventLog.log(this, "Triggers disarmed")
             statusText.text = "Disarmed"
         }
-        triggersInfo.setOnLongClickListener { showRemoveTriggerDialog(); true }
-
         // --- Advanced ---
         findViewById<TextView>(R.id.readLogsStatus).text = ShizukuHelper.getStatusText(this)
         findViewById<MaterialButton>(R.id.shizukuGrantButton).setOnClickListener {
@@ -363,44 +364,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showRemoveTriggerDialog() {
-        val configs = triggerManager.getConfiguredTriggers()
-        if (configs.isEmpty()) return
-        val labels = configs.map { c ->
-            when (c.type) {
-                "bluetooth" -> "BT: ${c.name}"
-                "android_auto" -> "Android Auto"
-                "wifi" -> "WiFi: ${c.name}"
-                "schedule" -> "Schedule: ${c.name}"
-                "geofence" -> "Location: ${c.name}"
-                "charging" -> "Charging"
-                "app" -> "App: ${c.name}"
-                else -> c.type
-            }
-        }.toTypedArray()
-
-        AlertDialog.Builder(this)
-            .setTitle("Remove trigger")
-            .setItems(labels) { _, i ->
-                val c = configs[i]
-                val id = when (c.type) {
-                    "bluetooth" -> "bluetooth_${c.address}"
-                    "android_auto" -> "android_auto"
-                    "wifi" -> "wifi_${c.name}"
-                    "schedule" -> "schedule_${c.startHour}${c.startMinute}_${c.endHour}${c.endMinute}"
-                    "geofence" -> "geofence_${c.latitude}_${c.longitude}"
-                    "charging" -> "charging"
-                    "app" -> "app_${c.address}"
-                    else -> return@setItems
-                }
-                triggerManager.removeTrigger(id)
-                refreshTriggerList()
-                EventLog.log(this, "Removed: ${labels[i]}")
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     // --- Shizuku ---
 
     private fun doShizukuGrant() {
@@ -431,19 +394,93 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshTriggerList() {
         val configs = triggerManager.getConfiguredTriggers()
-        triggersInfo.text = if (configs.isEmpty()) "No triggers configured." else
-            configs.joinToString("\n") { c ->
-                when (c.type) {
-                    "bluetooth" -> "BT: ${c.name}"
-                    "android_auto" -> "Android Auto"
-                    "wifi" -> "WiFi: ${c.name}"
-                    "schedule" -> "Schedule: ${c.name}"
-                    "geofence" -> "Location: ${c.name} (${c.radiusMeters?.toInt() ?: 500}m)"
-                    "charging" -> "Charging"
-                    "app" -> "App: ${c.name}"
-                    else -> c.type
-                }
+        triggersList.removeAllViews()
+
+        if (configs.isEmpty()) {
+            triggersEmpty.visibility = View.VISIBLE
+            return
+        }
+        triggersEmpty.visibility = View.GONE
+
+        for (config in configs) {
+            val row = LayoutInflater.from(this).inflate(R.layout.item_trigger, triggersList, false)
+
+            val label = row.findViewById<TextView>(R.id.triggerLabel)
+            label.text = when (config.type) {
+                "bluetooth" -> "BT: ${config.name}"
+                "android_auto" -> "Android Auto"
+                "wifi" -> "WiFi: ${config.name}"
+                "schedule" -> "Schedule: ${config.name}"
+                "geofence" -> "Location: ${config.name} (${config.radiusMeters?.toInt() ?: 500}m)"
+                "charging" -> "Charging"
+                "app" -> "App: ${config.name}"
+                else -> config.type
             }
+
+            val triggerId = when (config.type) {
+                "bluetooth" -> "bluetooth_${config.address}"
+                "android_auto" -> "android_auto"
+                "wifi" -> "wifi_${config.name}"
+                "schedule" -> "schedule_${config.startHour}${config.startMinute}_${config.endHour}${config.endMinute}"
+                "geofence" -> "geofence_${config.latitude}_${config.longitude}"
+                "charging" -> "charging"
+                "app" -> "app_${config.address}"
+                else -> ""
+            }
+
+            row.findViewById<ImageButton>(R.id.triggerEditButton).setOnClickListener {
+                showEditTriggerDialog(config, triggerId)
+            }
+
+            row.findViewById<ImageButton>(R.id.triggerDeleteButton).setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Remove trigger?")
+                    .setMessage(label.text)
+                    .setPositiveButton("Remove") { _, _ ->
+                        triggerManager.removeTrigger(triggerId)
+                        refreshTriggerList()
+                        EventLog.log(this, "Removed: ${label.text}")
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+
+            triggersList.addView(row)
+        }
+    }
+
+    private fun showEditTriggerDialog(config: io.github.thevellichor.samsungopenring.app.triggers.TriggerConfig, triggerId: String) {
+        // Remove old and re-add with new config via the appropriate dialog
+        when (config.type) {
+            "bluetooth" -> {
+                triggerManager.removeTrigger(triggerId)
+                ensureBluetooth { showBluetoothDevicePicker() }
+            }
+            "wifi" -> {
+                triggerManager.removeTrigger(triggerId)
+                showWifiNameDialog()
+            }
+            "schedule" -> {
+                triggerManager.removeTrigger(triggerId)
+                showScheduleDialog()
+            }
+            "geofence" -> {
+                triggerManager.removeTrigger(triggerId)
+                ensureLocation { showGeofenceDialog() }
+            }
+            "app" -> {
+                triggerManager.removeTrigger(triggerId)
+                showAppPicker()
+            }
+            else -> {
+                // Android Auto, Charging — nothing to edit, just inform
+                AlertDialog.Builder(this)
+                    .setTitle("Edit")
+                    .setMessage("This trigger has no configurable options.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
     }
 
     private fun saveWebhookUrl() {
