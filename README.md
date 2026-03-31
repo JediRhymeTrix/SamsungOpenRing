@@ -2,6 +2,12 @@
 
 Open-source SDK and companion app for the Samsung Galaxy Ring. Enables custom gesture-triggered actions without Samsung's official SDK.
 
+<p align="center">
+  <img src="screenshots/01_main.png" width="280" alt="Main screen" />
+  &nbsp;&nbsp;
+  <img src="screenshots/02_triggers.png" width="280" alt="Triggers configured" />
+</p>
+
 ## What it does
 
 SamsungOpenRing connects to your Galaxy Ring over BLE as a second GATT client (alongside Samsung's official app) and lets you:
@@ -16,7 +22,7 @@ The Samsung Galaxy Ring's BLE protocol was reverse-engineered from the companion
 
 **No root required.** No modifications to Samsung's app. No ADB setup for basic functionality.
 
-A detailed protocol specification (RFC-SGR-001) is available in the project documentation.
+See [RFC-SGR-001](docs/RFC-SGR-001-Samsung-Galaxy-Ring-Protocol.md) for the full protocol specification.
 
 ## Features
 
@@ -115,7 +121,7 @@ The Galaxy Ring uses a proprietary BLE protocol built on Samsung's Accessory Pro
 - **Disable gestures:** Write `0x16 0x16 0x01` to TX characteristic
 - **Gesture event:** Notification `0x16 0x16 0x02 [counter] 0x00 0x00 0x00`
 
-Full protocol specification available in project documentation (RFC-SGR-001).
+Full protocol specification: [RFC-SGR-001](docs/RFC-SGR-001-Samsung-Galaxy-Ring-Protocol.md)
 
 ## Disclaimer
 
