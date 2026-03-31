@@ -1,5 +1,7 @@
 # SamsungOpenRing
 
+> **This is an independent hobby project by a tinkerer who wanted more from his Galaxy Ring.** Samsung's double-pinch gesture is limited to two hardcoded actions (camera shutter and alarm dismiss). This project unlocks that gesture for whatever you want — open your parking gate, control your smart home, trigger automations, or anything else a webhook can reach. It is built for personal use and educational exploration of BLE protocols. Not affiliated with Samsung. No warranty. Use at your own risk.
+
 Open-source SDK and companion app for the Samsung Galaxy Ring. Enables custom gesture-triggered actions without Samsung's official SDK.
 
 <p align="center">
@@ -122,12 +124,6 @@ The Galaxy Ring uses a proprietary BLE protocol built on Samsung's Accessory Pro
 - **Gesture event:** Notification `0x16 0x16 0x02 [counter] 0x00 0x00 0x00`
 
 Full protocol specification: [RFC-SGR-001](docs/RFC-SGR-001-Samsung-Galaxy-Ring-Protocol.md)
-
-## Disclaimer
-
-This project is not affiliated with, endorsed by, or sponsored by Samsung Electronics. "Samsung" and "Galaxy Ring" are trademarks of Samsung Electronics Co., Ltd.
-
-This software interacts with the Galaxy Ring using the same BLE commands that Samsung's official companion app uses. However, **use at your own risk**. The authors take no responsibility for any impact on your ring's functionality, battery life, or warranty.
 
 ## License
 
