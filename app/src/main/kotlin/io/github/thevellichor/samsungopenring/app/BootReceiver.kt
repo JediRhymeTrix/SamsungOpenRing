@@ -21,9 +21,13 @@ class BootReceiver : BroadcastReceiver() {
         val triggerManager = TriggerManager(context)
         val configs = triggerManager.getConfiguredTriggers()
 
-        if (configs.isNotEmpty()) {
+        if (PowerSaverPolicy.shouldPause(context)) {
+            EventLog.log(context, "Battery Saver active — trigger re-arm deferred")
+        } else if (configs.isNotEmpty() && triggerManager.wereTriggersArmed()) {
             triggerManager.armAll()
             EventLog.log(context, "Re-armed ${configs.size} triggers after boot")
+        } else if (configs.isNotEmpty()) {
+            EventLog.log(context, "Triggers configured but not armed before boot")
         } else {
             EventLog.log(context, "No triggers configured, nothing to re-arm")
         }

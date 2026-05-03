@@ -26,6 +26,7 @@ internal class RingConnection(
     private var reconnectAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingSubscriptions = mutableListOf<BluetoothGattCharacteristic>()
+    private var lastRawLogAtMs = 0L
 
     val isConnected: Boolean get() = gatt != null && txCharacteristic != null
 
@@ -301,9 +302,9 @@ internal class RingConnection(
                     emit("RECV <- GESTURE_DISABLE_ACK success=$success [$hex] char=$charShort")
                 }
             } else if (channelName != null) {
-                emit("RECV <- $channelName [$hex] char=$charShort")
+                emitThrottledRaw("RECV <- $channelName [$hex] char=$charShort")
             } else {
-                emit("RECV <- RAW [$hex] char=$charShort")
+                emitThrottledRaw("RECV <- RAW [$hex] char=$charShort")
             }
         }
 
@@ -347,5 +348,14 @@ internal class RingConnection(
     private fun emit(message: String) {
         Log.d(TAG, message)
         OpenRing.logger?.log(message)
+    }
+
+    private fun emitThrottledRaw(message: String) {
+        Log.d(TAG, message)
+        val now = System.currentTimeMillis()
+        if (now - lastRawLogAtMs >= 30_000L) {
+            lastRawLogAtMs = now
+            OpenRing.logger?.log(message)
+        }
     }
 }

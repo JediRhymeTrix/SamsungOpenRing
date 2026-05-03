@@ -284,6 +284,15 @@
                     android:textColor="?android:textColorSecondary"
                     android:layout_marginBottom="8dp" />
 
+                <CheckBox
+                    android:id="@+id/powerSaverPauseCheckbox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Pause monitoring in Battery Saver"
+                    android:textSize="14sp"
+                    android:checked="true"
+                    android:layout_marginBottom="8dp" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

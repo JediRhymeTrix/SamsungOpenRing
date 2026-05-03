@@ -26,6 +26,11 @@ class GestureService : Service() {
         const val EXTRA_TIMESTAMP_MS = "timestamp_ms"
 
         fun start(context: Context) {
+            val appContext = context.applicationContext
+            if (PowerSaverPolicy.shouldPause(appContext)) {
+                EventLog.log(appContext, "Gesture service start skipped: Battery Saver pause active")
+                return
+            }
             context.startForegroundService(Intent(context, GestureService::class.java))
         }
 
@@ -36,14 +41,20 @@ class GestureService : Service() {
 
     private var webhookUrl: String = ""
     private var verboseLogging: Boolean = false
+    private var lastNotificationText: String? = null
 
     override fun onCreate() {
         super.onCreate()
+        if (PowerSaverPolicy.shouldPause(this)) {
+            EventLog.log(this, "Gesture service stopped: Battery Saver pause active")
+            stopSelf()
+            return
+        }
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Starting..."))
 
         OpenRing.logger = OpenRingLogger { message ->
-            verboseLog("Core: $message")
+            coreLog(message)
         }
 
         webhookUrl = getWebhookUrl()
@@ -55,7 +66,11 @@ class GestureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
+        if (PowerSaverPolicy.shouldPause(this)) {
+            EventLog.log(this, "Gesture service command ignored: Battery Saver pause active")
+            stopSelf()
+        }
+        return START_NOT_STICKY
     }
 
     private fun connectAndEnable() {
@@ -160,6 +175,13 @@ class GestureService : Service() {
         }
     }
 
+    private fun coreLog(message: String) {
+        Log.d(TAG, "Core: $message")
+        if (verboseLogging || message.contains("GESTURE") || message.contains("ERROR") || message.contains("FAILED")) {
+            EventLog.log(this, "Core: $message")
+        }
+    }
+
     private fun getWebhookUrl(): String {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getString(KEY_WEBHOOK_URL, "") ?: ""
@@ -197,6 +219,8 @@ class GestureService : Service() {
     }
 
     private fun updateNotification(text: String) {
+        if (lastNotificationText == text) return
+        lastNotificationText = text
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(text))
     }
