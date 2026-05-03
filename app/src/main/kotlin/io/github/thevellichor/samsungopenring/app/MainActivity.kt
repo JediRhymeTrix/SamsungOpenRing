@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.*
@@ -200,7 +201,8 @@ class MainActivity : AppCompatActivity() {
             "Time schedule",
             "Location (geofence)",
             "Charging",
-            "App in foreground"
+            "App in foreground",
+            "Media active"
         )
 
         AlertDialog.Builder(this)
@@ -214,6 +216,7 @@ class MainActivity : AppCompatActivity() {
                     4 -> ensureLocation { showGeofenceDialog() }
                     5 -> { triggerManager.addChargingTrigger(); refreshTriggerList(); EventLog.log(this, "Added charging trigger") }
                     6 -> showAppPicker()
+                    7 -> ensureNotificationAccess { addMediaActiveTrigger() }
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -241,6 +244,25 @@ class MainActivity : AppCompatActivity() {
         } else {
             pendingAction = action
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 2)
+        }
+    }
+
+    private fun ensureNotificationAccess(action: () -> Unit) {
+        val enabledListeners = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners"
+        ).orEmpty()
+        if (enabledListeners.contains(packageName)) {
+            action()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle("Notification access required")
+                .setMessage("Media active trigger uses Android media sessions, which require notification listener access. Enable SamsungOpenRing, then add this trigger again.")
+                .setPositiveButton("Open settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
     }
 
@@ -373,6 +395,12 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun addMediaActiveTrigger() {
+        triggerManager.addMediaActiveTrigger()
+        refreshTriggerList()
+        EventLog.log(this, "Added media active trigger")
+    }
+
     // --- Shizuku ---
 
     private fun doShizukuGrant() {
@@ -431,6 +459,7 @@ class MainActivity : AppCompatActivity() {
                 "geofence" -> "Location: ${config.name} (${config.radiusMeters?.toInt() ?: 500}m)"
                 "charging" -> "Charging"
                 "app" -> "App: ${config.name}"
+                "media_active" -> "Media active"
                 else -> config.type
             }
 
@@ -442,6 +471,7 @@ class MainActivity : AppCompatActivity() {
                 "geofence" -> "geofence_${config.latitude}_${config.longitude}"
                 "charging" -> "charging"
                 "app" -> "app_${config.address}"
+                "media_active" -> "media_active"
                 else -> ""
             }
 
