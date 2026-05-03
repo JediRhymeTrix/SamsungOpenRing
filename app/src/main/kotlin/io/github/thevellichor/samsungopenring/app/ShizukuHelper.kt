@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
@@ -15,6 +16,7 @@ object ShizukuHelper {
 
     private const val TAG = "OpenRing.Shizuku"
     private const val SHIZUKU_PERMISSION_CODE = 100
+    private const val SHIZUKU_PACKAGE_NAME = "moe.shizuku.privileged.api"
 
     private var shellService: IShizukuShellService? = null
     private var serviceConnection: ServiceConnection? = null
@@ -23,9 +25,21 @@ object ShizukuHelper {
 
     fun isShizukuInstalled(context: Context): Boolean {
         return try {
-            context.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
+            context.packageManager.getPackageInfo(SHIZUKU_PACKAGE_NAME, 0)
             true
         } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
+    fun launchShizuku(context: Context): Boolean {
+        return try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE_NAME)
+                ?: return false
+            context.startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to launch Shizuku: ${e.message}")
             false
         }
     }
