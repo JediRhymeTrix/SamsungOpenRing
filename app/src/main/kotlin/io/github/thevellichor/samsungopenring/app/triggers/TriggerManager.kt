@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.github.thevellichor.samsungopenring.app.GestureService
+import io.github.thevellichor.samsungopenring.app.PowerSaverPolicy
 
 class TriggerManager(context: Context) {
 
@@ -15,6 +16,7 @@ class TriggerManager(context: Context) {
         private const val TAG = "OpenRing.TriggerMgr"
         private const val PREFS_NAME = "openring_triggers"
         private const val KEY_TRIGGERS = "configured_triggers"
+        private const val KEY_TRIGGERS_ARMED = "triggers_armed"
     }
 
     private val prefs: SharedPreferences =
@@ -42,6 +44,12 @@ class TriggerManager(context: Context) {
     }
 
     fun armAll() {
+        setArmedIntent(true)
+        if (PowerSaverPolicy.shouldPause(context)) {
+            Log.d(TAG, "Arm deferred: Battery Saver pause active")
+            return
+        }
+        disarmActiveOnly()
         val configs = loadConfigs()
         for (config in configs) {
             val trigger = createTrigger(config) ?: continue
@@ -52,12 +60,29 @@ class TriggerManager(context: Context) {
     }
 
     fun disarmAll() {
+        setArmedIntent(false)
+        disarmActiveOnly()
+        Log.d(TAG, "All triggers disarmed")
+    }
+
+    fun pauseForPowerSaver() {
+        disarmActiveOnly()
+        GestureService.stop(context)
+        Log.d(TAG, "Paused triggers for Battery Saver")
+    }
+
+    fun resumeAfterPowerSaver() {
+        if (wereTriggersArmed()) armAll()
+    }
+
+    fun wereTriggersArmed(): Boolean = prefs.getBoolean(KEY_TRIGGERS_ARMED, false)
+
+    private fun disarmActiveOnly() {
         for (trigger in activeTriggers) {
             trigger.disarm(context)
         }
         activeTriggers.clear()
         activeTriggerCount = 0
-        Log.d(TAG, "All triggers disarmed")
     }
 
     fun addBluetoothTrigger(address: String, name: String) {
@@ -71,6 +96,8 @@ class TriggerManager(context: Context) {
 
         configs.add(config)
         saveConfigs(configs)
+
+        if (PowerSaverPolicy.shouldPause(context)) return
 
         val trigger = BluetoothTrigger(address, name)
         trigger.arm(context, triggerCallback)
@@ -102,6 +129,8 @@ class TriggerManager(context: Context) {
         configs.add(TriggerConfig(type = "wifi", name = ssid))
         saveConfigs(configs)
 
+        if (PowerSaverPolicy.shouldPause(context)) return
+
         val trigger = WifiTrigger(ssid)
         trigger.arm(context, triggerCallback)
         activeTriggers.add(trigger)
@@ -117,6 +146,8 @@ class TriggerManager(context: Context) {
         )
         configs.add(config)
         saveConfigs(configs)
+
+        if (PowerSaverPolicy.shouldPause(context)) return
 
         val trigger = ScheduleTrigger(startH, startM, endH, endM, days)
         trigger.arm(context, triggerCallback)
@@ -137,6 +168,8 @@ class TriggerManager(context: Context) {
         ))
         saveConfigs(configs)
 
+        if (PowerSaverPolicy.shouldPause(context)) return
+
         val trigger = GeofenceTrigger(lat, lng, radius, label)
         trigger.arm(context, triggerCallback)
         activeTriggers.add(trigger)
@@ -152,6 +185,8 @@ class TriggerManager(context: Context) {
 
         configs.add(TriggerConfig(type = "charging", name = "Charging"))
         saveConfigs(configs)
+
+        if (PowerSaverPolicy.shouldPause(context)) return
 
         val trigger = ChargingTrigger()
         trigger.arm(context, triggerCallback)
@@ -169,6 +204,8 @@ class TriggerManager(context: Context) {
         configs.add(TriggerConfig(type = "app", address = packageName, name = appLabel))
         saveConfigs(configs)
 
+        if (PowerSaverPolicy.shouldPause(context)) return
+
         val trigger = AppRunningTrigger(packageName, appLabel)
         trigger.arm(context, triggerCallback)
         activeTriggers.add(trigger)
@@ -185,6 +222,8 @@ class TriggerManager(context: Context) {
         configs.add(TriggerConfig(type = "android_auto", name = "Android Auto"))
         saveConfigs(configs)
 
+        if (PowerSaverPolicy.shouldPause(context)) return
+
         val trigger = AndroidAutoTrigger()
         trigger.arm(context, triggerCallback)
         activeTriggers.add(trigger)
@@ -200,6 +239,8 @@ class TriggerManager(context: Context) {
 
         configs.add(TriggerConfig(type = "media_active", name = "Media active"))
         saveConfigs(configs)
+
+        if (PowerSaverPolicy.shouldPause(context)) return
 
         val trigger = MediaActiveTrigger()
         trigger.arm(context, triggerCallback)
@@ -268,6 +309,10 @@ class TriggerManager(context: Context) {
 
     private fun saveConfigs(configs: List<TriggerConfig>) {
         prefs.edit().putString(KEY_TRIGGERS, gson.toJson(configs)).apply()
+    }
+
+    private fun setArmedIntent(armed: Boolean) {
+        prefs.edit().putBoolean(KEY_TRIGGERS_ARMED, armed).apply()
     }
 }
 

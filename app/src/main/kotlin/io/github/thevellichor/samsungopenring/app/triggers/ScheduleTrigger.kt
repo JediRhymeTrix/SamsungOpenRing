@@ -130,8 +130,9 @@ class ScheduleTrigger(
 
         // Use inexact alarms — exact alarms require special permission on Android 12+
         // and aren't critical for schedule triggers (a few minutes of drift is fine)
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextStart, startIntent)
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextEnd, endIntent)
+        val windowMs = 10 * 60 * 1000L
+        alarmManager.setWindow(AlarmManager.RTC, nextStart, windowMs, startIntent)
+        alarmManager.setWindow(AlarmManager.RTC, nextEnd, windowMs, endIntent)
     }
 
     private fun cancelAlarms(context: Context) {

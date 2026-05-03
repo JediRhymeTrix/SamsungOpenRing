@@ -12,7 +12,8 @@ class MediaActiveTrigger : Trigger {
 
     companion object {
         private const val TAG = "OpenRing.MediaTrigger"
-        private const val POLL_INTERVAL_MS = 5_000L
+        private const val ACTIVE_POLL_INTERVAL_MS = 5_000L
+        private const val IDLE_POLL_INTERVAL_MS = 15_000L
     }
 
     override val id = "media_active"
@@ -30,7 +31,7 @@ class MediaActiveTrigger : Trigger {
         override fun run() {
             if (!armed) return
             checkMediaSessions()
-            handler?.postDelayed(this, POLL_INTERVAL_MS)
+            handler?.postDelayed(this, if (active) ACTIVE_POLL_INTERVAL_MS else IDLE_POLL_INTERVAL_MS)
         }
     }
 

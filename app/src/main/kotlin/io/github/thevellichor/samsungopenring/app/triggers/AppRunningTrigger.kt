@@ -13,7 +13,8 @@ class AppRunningTrigger(
 
     companion object {
         private const val TAG = "OpenRing.AppTrigger"
-        private const val POLL_INTERVAL_MS = 15_000L // 15 seconds
+        private const val ACTIVE_POLL_INTERVAL_MS = 5_000L
+        private const val IDLE_POLL_INTERVAL_MS = 30_000L
     }
 
     override val id = "app_$targetPackage"
@@ -31,7 +32,7 @@ class AppRunningTrigger(
         override fun run() {
             if (!armed) return
             checkForegroundApp()
-            handler?.postDelayed(this, POLL_INTERVAL_MS)
+            handler?.postDelayed(this, if (active) ACTIVE_POLL_INTERVAL_MS else IDLE_POLL_INTERVAL_MS)
         }
     }
 

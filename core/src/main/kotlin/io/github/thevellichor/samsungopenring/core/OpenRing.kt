@@ -37,7 +37,6 @@ object OpenRing {
 
     fun disconnect() {
         connection?.disconnect()
-        connection = null
     }
 
     fun enableGestures(listener: GestureListener) {

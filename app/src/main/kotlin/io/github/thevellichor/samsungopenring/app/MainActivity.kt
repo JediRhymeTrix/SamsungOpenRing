@@ -2,11 +2,15 @@ package io.github.thevellichor.samsungopenring.app
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
@@ -24,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "openring_prefs"
         private const val KEY_WEBHOOK_URL = "webhook_url"
         private const val KEY_VERBOSE_LOGGING = GestureService.KEY_VERBOSE_LOGGING
+        private const val KEY_MANUAL_MONITORING_ACTIVE = "manual_monitoring_active"
     }
 
     private lateinit var prefs: SharedPreferences
@@ -33,7 +38,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var triggersEmpty: TextView
     private lateinit var eventLog: TextView
     private lateinit var triggerManager: TriggerManager
+    private lateinit var powerSaverCheckbox: CheckBox
     private var logExpanded = false
+
+    private val powerStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            applyPowerSaverPolicy()
+        }
+    }
 
     private val logListener: (String) -> Unit = { line ->
         runOnUiThread {
@@ -67,16 +79,25 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean(KEY_VERBOSE_LOGGING, isChecked).apply()
             EventLog.log(this, "Verbose logging ${if (isChecked) "enabled" else "disabled"}")
         }
+        powerSaverCheckbox = findViewById(R.id.powerSaverPauseCheckbox)
+        powerSaverCheckbox.isChecked = PowerSaverPolicy.isPauseEnabled(this)
+        powerSaverCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            PowerSaverPolicy.setPauseEnabled(this, isChecked)
+            EventLog.log(this, "Battery Saver pause ${if (isChecked) "enabled" else "disabled"}")
+            applyPowerSaverPolicy()
+        }
 
         // --- Manual Control ---
         findViewById<MaterialButton>(R.id.startButton).setOnClickListener {
             ensureBluetooth {
                 saveWebhookUrl()
+                prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, true).apply()
                 GestureService.start(this)
                 statusText.text = "Starting..."
             }
         }
         findViewById<MaterialButton>(R.id.stopButton).setOnClickListener {
+            prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, false).apply()
             GestureService.stop(this)
             statusText.text = "Stopped"
         }
@@ -93,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.disarmTriggersButton).setOnClickListener {
             triggerManager.disarmAll()
+            prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, false).apply()
             GestureService.stop(this)
             EventLog.log(this, "Triggers disarmed")
             statusText.text = "Disarmed"
@@ -138,13 +160,36 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         EventLog.addListener(logListener)
+        registerReceiver(powerStateReceiver, IntentFilter().apply {
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            addAction(PowerSaverPolicy.ACTION_POWER_STATE_CHANGED)
+        }, RECEIVER_NOT_EXPORTED)
         eventLog.text = EventLog.getRecentLines(this)
         findViewById<TextView>(R.id.readLogsStatus).text = ShizukuHelper.getStatusText(this)
+        applyPowerSaverPolicy()
     }
 
     override fun onPause() {
         super.onPause()
+        unregisterReceiver(powerStateReceiver)
         EventLog.removeListener(logListener)
+    }
+
+    private fun applyPowerSaverPolicy() {
+        if (PowerSaverPolicy.shouldPause(this)) {
+            triggerManager.pauseForPowerSaver()
+            GestureService.stop(this)
+            statusText.text = "Paused for Battery Saver"
+            return
+        }
+
+        if (triggerManager.wereTriggersArmed()) {
+            triggerManager.resumeAfterPowerSaver()
+            statusText.text = "Triggers armed"
+        } else if (prefs.getBoolean(KEY_MANUAL_MONITORING_ACTIVE, false)) {
+            GestureService.start(this)
+            statusText.text = "Starting..."
+        }
     }
 
     // --- Help dialogs ---
