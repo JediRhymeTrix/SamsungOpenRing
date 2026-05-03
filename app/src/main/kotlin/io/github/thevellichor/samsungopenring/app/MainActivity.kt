@@ -109,6 +109,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.toggleLogButton).setOnClickListener {
             logExpanded = !logExpanded
             eventLog.visibility = if (logExpanded) View.VISIBLE else View.GONE
+            findViewById<CheckBox>(R.id.verboseLoggingCheckbox).visibility =
+                if (logExpanded) View.VISIBLE else View.GONE
             (it as ImageButton).setImageResource(
                 if (logExpanded) android.R.drawable.arrow_up_float
                 else android.R.drawable.arrow_down_float
