@@ -19,39 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  changes:
-    name: Detect build-relevant changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      android: ${{ steps.filter.outputs.android }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Filter paths
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          base: ${{ github.event_name == 'workflow_dispatch' && 'HEAD^' || github.event.before }}
-          filters: |
-            android:
-              - '.github/workflows/release-build.yml'
-              - '*.gradle.kts'
-              - 'gradle.properties'
-              - 'gradlew'
-              - 'gradlew.bat'
-              - 'gradle/**'
-              - 'app/**'
-              - 'core/**'
-              - 'tasker-plugin/**'
-
   build-release:
     name: Build release APKs
-    needs: changes
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
