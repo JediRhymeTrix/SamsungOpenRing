@@ -3,6 +3,7 @@ package io.github.thevellichor.samsungopenring.tasker
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -18,16 +19,34 @@ class TaskerGestureService : Service() {
         const val EXTRA_GESTURE_ID = "gesture_id"
 
         fun start(context: Context) {
+            if (isPowerSaverPauseActive(context)) {
+                Log.d(TAG, "Tasker service start skipped: Battery Saver pause active")
+                return
+            }
             context.startForegroundService(Intent(context, TaskerGestureService::class.java))
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, TaskerGestureService::class.java))
         }
+
+        private fun isPowerSaverPauseActive(context: Context): Boolean {
+            val prefs = context.applicationContext.getSharedPreferences("openring_prefs", Context.MODE_PRIVATE)
+            val pauseEnabled = prefs.getBoolean("pause_in_power_saver", true)
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            return pauseEnabled && powerManager?.isPowerSaveMode == true
+        }
     }
+
+    private var lastNotificationText: String? = null
 
     override fun onCreate() {
         super.onCreate()
+        if (isPowerSaverPauseActive(this)) {
+            Log.d(TAG, "Tasker service stopped: Battery Saver pause active")
+            stopSelf()
+            return
+        }
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Connecting..."))
 
@@ -72,11 +91,16 @@ class TaskerGestureService : Service() {
         })
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (isPowerSaverPauseActive(this)) {
+            Log.d(TAG, "Tasker service command ignored: Battery Saver pause active")
+            stopSelf()
+        }
+        return START_NOT_STICKY
+    }
 
     override fun onDestroy() {
         super.onDestroy()
-        OpenRing.disableGestures()
         OpenRing.disconnect()
         Log.d(TAG, "Tasker service stopped")
     }
@@ -100,6 +124,8 @@ class TaskerGestureService : Service() {
     }
 
     private fun updateNotification(text: String) {
+        if (lastNotificationText == text) return
+        lastNotificationText = text
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(text))
     }

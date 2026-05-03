@@ -14,6 +14,7 @@ internal class RingConnection(
         private const val TAG = "OpenRing.Connection"
         private const val RECONNECT_DELAY_MS = 5_000L
         private const val MAX_RECONNECT_ATTEMPTS = 10
+        private const val DISABLE_BEFORE_DISCONNECT_TIMEOUT_MS = 700L
     }
 
     @Volatile private var gatt: BluetoothGatt? = null
@@ -22,10 +23,17 @@ internal class RingConnection(
     @Volatile private var closing = false
     @Volatile private var gesturesDesired = false  // true = we want gestures on
     @Volatile private var disableRequested = false // true = WE sent the disable
+    @Volatile private var disconnectAfterDisableAck = false
     private var device: BluetoothDevice? = null
     private var reconnectAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingSubscriptions = mutableListOf<BluetoothGattCharacteristic>()
+    private val disconnectAfterDisableTimeout = Runnable {
+        if (disconnectAfterDisableAck) {
+            emit("Gesture disable ACK timeout — disconnecting anyway")
+            disconnectNow()
+        }
+    }
     private var lastRawLogAtMs = 0L
 
     val isConnected: Boolean get() = gatt != null && txCharacteristic != null
@@ -44,7 +52,28 @@ internal class RingConnection(
     }
 
     fun disconnect() {
+        if (gatt != null && txCharacteristic != null && gesturesDesired) {
+            disableGesturesAndDisconnect()
+            return
+        }
+        disconnectNow()
+    }
+
+    private fun disableGesturesAndDisconnect() {
         closing = true
+        gesturesDesired = false
+        disableRequested = true
+        disconnectAfterDisableAck = true
+        emit("Disabling gestures before disconnect")
+        writeCommand(RingProtocol.CMD_DISABLE_GESTURES, "DISABLE_GESTURE")
+        mainHandler.removeCallbacks(disconnectAfterDisableTimeout)
+        mainHandler.postDelayed(disconnectAfterDisableTimeout, DISABLE_BEFORE_DISCONNECT_TIMEOUT_MS)
+    }
+
+    private fun disconnectNow() {
+        closing = true
+        disconnectAfterDisableAck = false
+        mainHandler.removeCallbacks(disconnectAfterDisableTimeout)
         emit("BLE disconnecting (user-initiated)")
         mainHandler.removeCallbacksAndMessages(null)
         val g = gatt
@@ -183,6 +212,7 @@ internal class RingConnection(
             emit("Service discovery OK — ${g.services.size} services found")
 
             var foundTx: BluetoothGattCharacteristic? = null
+            var fallbackTx: BluetoothGattCharacteristic? = null
             for (service in g.services) {
                 val svcShort = service.uuid.toString().substring(0, 8)
                 val charCount = service.characteristics.size
@@ -199,12 +229,17 @@ internal class RingConnection(
                     emit("    CHAR $charShort [${props.joinToString(",")}]")
 
                     val svcId = service.uuid.toString()
-                    if ((svcId.startsWith("00001b1b") || svcId.startsWith("00001b1a"))
-                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
+                    if (service.uuid == RingProtocol.DATA_SERVICE_UUID && char.uuid == RingProtocol.TX_UUID) {
                         foundTx = char
+                    } else if (svcId.startsWith("00001b1b")
+                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+                        && fallbackTx == null) {
+                        fallbackTx = char
                     }
                 }
             }
+
+            foundTx = foundTx ?: fallbackTx
 
             if (foundTx == null) {
                 emit("TX characteristic NOT FOUND")
@@ -215,9 +250,22 @@ internal class RingConnection(
             txCharacteristic = foundTx
             emit("TX selected: ${foundTx.uuid.toString().substring(0, 8)} on svc ${foundTx.service.uuid.toString().substring(0, 8)}")
 
-            val notifyChars = g.services
+            val exactRx = g.services
                 .flatMap { it.characteristics }
-                .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
+                .firstOrNull {
+                    it.service.uuid == RingProtocol.DATA_SERVICE_UUID &&
+                        it.uuid == RingProtocol.RX_UUID &&
+                        it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+                }
+
+            val notifyChars = if (exactRx != null) {
+                listOf(exactRx)
+            } else {
+                g.services
+                    .filter { it.uuid == RingProtocol.DATA_SERVICE_UUID }
+                    .flatMap { it.characteristics }
+                    .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
+            }
 
             emit("Subscribing to ${notifyChars.size} NOTIFY characteristics...")
 
@@ -236,6 +284,11 @@ internal class RingConnection(
 
             if (char == null) {
                 emit("All CCCD subscriptions complete — connection ready")
+                try {
+                    g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                } catch (e: SecurityException) {
+                    emit("Connection priority request failed: ${e.message}")
+                }
                 mainHandler.post { connectionCallback.onConnected() }
                 return
             }
@@ -294,6 +347,9 @@ internal class RingConnection(
                 if (disableRequested) {
                     emit("RECV <- GESTURE_DISABLE_ACK success=$success [$hex] char=$charShort (our request)")
                     disableRequested = false
+                    if (disconnectAfterDisableAck) {
+                        disconnectNow()
+                    }
                 } else if (gesturesDesired) {
                     emit("RECV <- GESTURE_DISABLE_ACK success=$success [$hex] char=$charShort (EXTERNAL — Samsung's app disabled us)")
                     emit("Re-enabling gestures (overriding Samsung's disable)...")

@@ -155,8 +155,6 @@ class GestureService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         log("Disabling gestures...")
-        OpenRing.disableGestures()
-        log("Disconnecting...")
         OpenRing.disconnect()
         log("Service stopped")
     }
