@@ -1,6 +1,7 @@
 name: Release Drafter
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -62,7 +63,7 @@ jobs:
     needs:
       - changes
       - update-release-draft
-    if: github.event_name == 'push' && needs.changes.outputs.android == 'true'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.changes.outputs.android == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
