@@ -371,6 +371,16 @@
                         android:contentDescription="Toggle log" />
                 </LinearLayout>
 
+                <CheckBox
+                    android:id="@+id/verboseLoggingCheckbox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Verbose event logging"
+                    android:textSize="14sp"
+                    android:visibility="gone"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp" />
+
                 <TextView
                     android:id="@+id/eventLog"
                     android:layout_width="match_parent"

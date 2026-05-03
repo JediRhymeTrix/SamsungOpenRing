@@ -44,6 +44,7 @@ OpenRing.enableGestures { event ->
 
 - **Manual control** -- start/stop gesture monitoring with a button
 - **Webhook integration** -- HTTP POST to any URL on each gesture
+- **Tasker integration** -- broadcast an Android intent on each gesture for Tasker automations
 - **7 trigger types:**
   - Bluetooth device connection (e.g., car stereo)
   - Android Auto
@@ -78,6 +79,34 @@ Requires:
 - Android SDK (compileSdk 34)
 - JDK 17
 - Galaxy Ring paired with your phone via Samsung's official app
+
+## Tasker integration
+
+SamsungOpenRing can trigger Tasker automations without a separate plugin APK. When the app detects a double-pinch gesture, it broadcasts this Android intent:
+
+```text
+io.github.thevellichor.samsungopenring.intent.action.GESTURE
+```
+
+Intent extras:
+
+| Extra | Type | Value |
+| --- | --- | --- |
+| `gesture_type` | String | `double_pinch` |
+| `gesture_id` | Int | Monotonic gesture counter from the ring |
+| `timestamp_ms` | Long | Android epoch timestamp in milliseconds |
+
+### Tasker setup
+
+1. In SamsungOpenRing, configure triggers or start gesture monitoring manually.
+2. In Tasker, create a profile:
+   - **Profile** → **Event** → **System** → **Intent Received**
+   - **Action:** `io.github.thevellichor.samsungopenring.intent.action.GESTURE`
+3. Attach any Tasker task to that profile.
+
+Tasker exposes the extras as variables such as `%gesture_type`, `%gesture_id`, and `%timestamp_ms`.
+
+If Tasker does not receive the intent, enable **Verbose event logging** in the app's Advanced section, reproduce a double-pinch, then export the Event Log. The log records whether Tasker is installed, the exact broadcast action, and the extras sent.
 
 ## Requirements
 
