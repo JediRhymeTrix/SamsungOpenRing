@@ -191,6 +191,22 @@ class TriggerManager(context: Context) {
         Log.d(TAG, "Added Android Auto trigger")
     }
 
+    fun addMediaActiveTrigger() {
+        val configs = loadConfigs().toMutableList()
+        if (configs.any { it.type == "media_active" }) {
+            Log.d(TAG, "Media active trigger already exists")
+            return
+        }
+
+        configs.add(TriggerConfig(type = "media_active", name = "Media active"))
+        saveConfigs(configs)
+
+        val trigger = MediaActiveTrigger()
+        trigger.arm(context, triggerCallback)
+        activeTriggers.add(trigger)
+        Log.d(TAG, "Added media active trigger")
+    }
+
     private fun createTrigger(config: TriggerConfig): Trigger? {
         return when (config.type) {
             "bluetooth" -> {
@@ -224,6 +240,7 @@ class TriggerManager(context: Context) {
                 AppRunningTrigger(pkg, label)
             }
             "manual" -> ManualTrigger()
+            "media_active" -> MediaActiveTrigger()
             else -> null
         }
     }
@@ -238,6 +255,7 @@ class TriggerManager(context: Context) {
             "charging" -> "charging"
             "app" -> "app_${config.address}"
             "manual" -> "manual"
+            "media_active" -> "media_active"
             else -> "unknown"
         }
     }
