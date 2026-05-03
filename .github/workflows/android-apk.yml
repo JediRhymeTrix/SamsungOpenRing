@@ -90,8 +90,28 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Restore signing key
+        env:
+          OPENRING_KEYSTORE_BASE64: ${{ secrets.OPENRING_KEYSTORE_BASE64 }}
+          OPENRING_KEYSTORE_PASSWORD: ${{ secrets.OPENRING_KEYSTORE_PASSWORD }}
+          OPENRING_KEY_ALIAS: ${{ secrets.OPENRING_KEY_ALIAS }}
+          OPENRING_KEY_PASSWORD: ${{ secrets.OPENRING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$OPENRING_KEYSTORE_BASE64" ]; then
+            echo "$OPENRING_KEYSTORE_BASE64" | base64 --decode > release-keystore.jks
+            printf '%s\n' \
+              'storeFile=release-keystore.jks' \
+              "storePassword=$OPENRING_KEYSTORE_PASSWORD" \
+              "keyAlias=$OPENRING_KEY_ALIAS" \
+              "keyPassword=$OPENRING_KEY_PASSWORD" \
+              > keystore.properties
+          fi
+
       - name: Build APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon -PVERSION_CODE=${{ github.run_number }} :app:assembleDebug
+
+      - name: Name APK
+        run: ./gradlew --no-daemon -PVERSION_CODE=${{ github.run_number }} :app:renameDebugApk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
