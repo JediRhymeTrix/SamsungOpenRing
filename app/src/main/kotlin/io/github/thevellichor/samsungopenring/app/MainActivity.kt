@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS_NAME = "openring_prefs"
         private const val KEY_WEBHOOK_URL = "webhook_url"
+        private const val KEY_VERBOSE_LOGGING = GestureService.KEY_VERBOSE_LOGGING
     }
 
     private lateinit var prefs: SharedPreferences
@@ -59,6 +60,12 @@ class MainActivity : AppCompatActivity() {
 
         webhookInput.setText(prefs.getString(KEY_WEBHOOK_URL, ""))
         eventLog.text = EventLog.getRecentLines(this)
+        val verboseLoggingCheckbox = findViewById<CheckBox>(R.id.verboseLoggingCheckbox)
+        verboseLoggingCheckbox.isChecked = prefs.getBoolean(KEY_VERBOSE_LOGGING, false)
+        verboseLoggingCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(KEY_VERBOSE_LOGGING, isChecked).apply()
+            EventLog.log(this, "Verbose logging ${if (isChecked) "enabled" else "disabled"}")
+        }
 
         // --- Manual Control ---
         findViewById<MaterialButton>(R.id.startButton).setOnClickListener {

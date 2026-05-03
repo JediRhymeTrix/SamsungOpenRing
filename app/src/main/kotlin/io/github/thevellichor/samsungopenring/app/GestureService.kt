@@ -3,6 +3,7 @@ package io.github.thevellichor.samsungopenring.app
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -16,6 +17,7 @@ class GestureService : Service() {
         private const val CHANNEL_ID = "openring_gesture"
         private const val PREFS_NAME = "openring_prefs"
         private const val KEY_WEBHOOK_URL = "webhook_url"
+        const val KEY_VERBOSE_LOGGING = "verbose_logging"
         private const val TASKER_PACKAGE = "net.dinglisch.android.taskerm"
 
         const val ACTION_GESTURE = "io.github.thevellichor.samsungopenring.intent.action.GESTURE"
@@ -33,6 +35,7 @@ class GestureService : Service() {
     }
 
     private var webhookUrl: String = ""
+    private var verboseLogging: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -40,11 +43,13 @@ class GestureService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("Starting..."))
 
         OpenRing.logger = OpenRingLogger { message ->
-            EventLog.log(this@GestureService, message)
+            verboseLog("Core: $message")
         }
 
         webhookUrl = getWebhookUrl()
-        log("Service started (webhook: ${if (webhookUrl.isNotBlank()) webhookUrl else "none"})")
+        verboseLogging = isVerboseLoggingEnabled()
+        log("Service started (webhook: ${if (webhookUrl.isNotBlank()) "configured" else "none"}, verbose: $verboseLogging)")
+        logTaskerDiagnostics()
 
         connectAndEnable()
     }
@@ -101,8 +106,35 @@ class GestureService : Service() {
             putExtra(EXTRA_TIMESTAMP_MS, timestamp)
         }
 
-        sendBroadcast(broadcast.setPackage(TASKER_PACKAGE))
-        log("Broadcasted Tasker intent: $ACTION_GESTURE")
+        verboseLog(
+            "Tasker broadcast prepared: action=$ACTION_GESTURE, " +
+                "$EXTRA_GESTURE_TYPE=double_pinch, $EXTRA_GESTURE_ID=${event.gestureId}, " +
+                "$EXTRA_TIMESTAMP_MS=$timestamp"
+        )
+
+        try {
+            sendBroadcast(broadcast)
+            log("Tasker intent broadcast sent: $ACTION_GESTURE (gesture #${event.gestureId})")
+            verboseLog("Tasker setup: Profile > Event > System > Intent Received > Action = $ACTION_GESTURE")
+        } catch (exception: Exception) {
+            log("Tasker intent broadcast FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
+        }
+    }
+
+    private fun logTaskerDiagnostics() {
+        val taskerInstalled = isPackageInstalled(TASKER_PACKAGE)
+        log("Tasker diagnostic: package $TASKER_PACKAGE installed=$taskerInstalled")
+        verboseLog("Tasker diagnostic: using implicit broadcast action $ACTION_GESTURE")
+        verboseLog("Tasker diagnostic: expected extras $EXTRA_GESTURE_TYPE, $EXTRA_GESTURE_ID, $EXTRA_TIMESTAMP_MS")
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean {
+        return try {
+            packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
     }
 
     override fun onDestroy() {
@@ -121,9 +153,21 @@ class GestureService : Service() {
         EventLog.log(this, message)
     }
 
+    private fun verboseLog(message: String) {
+        Log.d(TAG, message)
+        if (verboseLogging) {
+            EventLog.log(this, "VERBOSE: $message")
+        }
+    }
+
     private fun getWebhookUrl(): String {
         return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .getString(KEY_WEBHOOK_URL, "") ?: ""
+    }
+
+    private fun isVerboseLoggingEnabled(): Boolean {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(KEY_VERBOSE_LOGGING, false)
     }
 
     private fun createNotificationChannel() {

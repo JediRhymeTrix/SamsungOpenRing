@@ -106,7 +106,7 @@ Intent extras:
 
 Tasker exposes the extras as variables such as `%gesture_type`, `%gesture_id`, and `%timestamp_ms`.
 
-This same broadcast can also be consumed by other Android automation apps that support intent-received events.
+If Tasker does not receive the intent, enable **Verbose event logging** in the app's Advanced section, reproduce a double-pinch, then export the Event Log. The log records whether Tasker is installed, the exact broadcast action, and the extras sent.
 
 ## Requirements
 
