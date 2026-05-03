@@ -16,6 +16,12 @@ class GestureService : Service() {
         private const val CHANNEL_ID = "openring_gesture"
         private const val PREFS_NAME = "openring_prefs"
         private const val KEY_WEBHOOK_URL = "webhook_url"
+        private const val TASKER_PACKAGE = "net.dinglisch.android.taskerm"
+
+        const val ACTION_GESTURE = "io.github.thevellichor.samsungopenring.intent.action.GESTURE"
+        const val EXTRA_GESTURE_TYPE = "gesture_type"
+        const val EXTRA_GESTURE_ID = "gesture_id"
+        const val EXTRA_TIMESTAMP_MS = "timestamp_ms"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, GestureService::class.java))
@@ -59,6 +65,7 @@ class GestureService : Service() {
                 OpenRing.enableGestures { event ->
                     log("GESTURE #${event.gestureId} detected")
                     updateNotification("Gesture #${event.gestureId} detected")
+                    broadcastGesture(event)
 
                     if (webhookUrl.isNotBlank()) {
                         log("Sending webhook -> $webhookUrl")
@@ -83,6 +90,19 @@ class GestureService : Service() {
                 updateNotification("Error: ${error.message}")
             }
         })
+    }
+
+    private fun broadcastGesture(event: GestureEvent) {
+        val timestamp = System.currentTimeMillis()
+
+        val broadcast = Intent(ACTION_GESTURE).apply {
+            putExtra(EXTRA_GESTURE_TYPE, "double_pinch")
+            putExtra(EXTRA_GESTURE_ID, event.gestureId)
+            putExtra(EXTRA_TIMESTAMP_MS, timestamp)
+        }
+
+        sendBroadcast(broadcast.setPackage(TASKER_PACKAGE))
+        log("Broadcasted Tasker intent: $ACTION_GESTURE")
     }
 
     override fun onDestroy() {
