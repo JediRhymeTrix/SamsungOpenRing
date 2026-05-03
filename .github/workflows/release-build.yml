@@ -65,13 +65,38 @@ jobs:
       - name: Name release APK
         run: ./gradlew --no-daemon -PVERSION_CODE=${{ github.run_number }} :app:renameReleaseApk
 
+      - name: Remove unsigned release APK
+        run: rm -f app/build/outputs/apk/release/app-release.apk
+
+      - name: Verify release APK signatures
+        run: |
+          APKS=(app/build/outputs/apk/release/SamsungOpenRing-*.apk)
+          if [ ! -e "${APKS[0]}" ]; then
+            echo "No renamed release APK found" >&2
+            exit 1
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          for apk in "${APKS[@]}"; do
+            "$APKSIGNER" verify --verbose --print-certs "$apk"
+          done
+
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: samsung-open-ring-release-${{ github.run_number }}
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/SamsungOpenRing-*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove existing release APK assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' \
+            | grep -E '\.apk$' \
+            | xargs -r -I {} gh release delete-asset "$RELEASE_TAG" "{}" -y
 
       - name: Attach APKs to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -79,4 +104,4 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           draft: true
           generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/release/SamsungOpenRing-*.apk
