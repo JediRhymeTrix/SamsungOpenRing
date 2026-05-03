@@ -379,7 +379,15 @@ class MainActivity : AppCompatActivity() {
         val status = findViewById<TextView>(R.id.readLogsStatus)
         if (ShizukuHelper.hasReadLogs(this)) { status.text = "READ_LOGS already granted!"; return }
         if (!ShizukuHelper.isShizukuInstalled(this)) { status.text = "Install Shizuku from Play Store"; return }
-        if (!ShizukuHelper.isShizukuRunning()) { status.text = "Open Shizuku app and start it"; return }
+        if (!ShizukuHelper.isShizukuRunning()) {
+            status.text = "Open Shizuku app and start it"
+            if (ShizukuHelper.launchShizuku(this)) {
+                EventLog.log(this, "Opened Shizuku app")
+            } else {
+                EventLog.log(this, "Could not open Shizuku app")
+            }
+            return
+        }
         if (!ShizukuHelper.hasShizukuPermission()) {
             ShizukuHelper.requestPermission { granted ->
                 runOnUiThread { if (granted) doShizukuGrantInner(status) else status.text = "Permission denied" }
