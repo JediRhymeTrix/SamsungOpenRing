@@ -1,44 +1,22 @@
-name: Android Build
+name: Release Build
 
 on:
-  workflow_dispatch:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-    paths:
-      - '.github/workflows/android-apk.yml'
-      - '*.gradle.kts'
-      - 'gradle.properties'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - 'gradle/**'
-      - 'app/**'
-      - 'core/**'
-      - 'tasker-plugin/**'
   push:
-    branches:
-      - master
-      - main
-    paths:
-      - '.github/workflows/android-apk.yml'
-      - '*.gradle.kts'
-      - 'gradle.properties'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - 'gradle/**'
-      - 'app/**'
-      - 'core/**'
-      - 'tasker-plugin/**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update, e.g. v1.0.0'
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: android-apk-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   changes:
@@ -50,14 +28,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Filter paths
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          base: ${{ github.event_name == 'workflow_dispatch' && 'HEAD^' || github.event.before }}
           filters: |
             android:
-              - '.github/workflows/android-apk.yml'
+              - '.github/workflows/release-build.yml'
               - '*.gradle.kts'
               - 'gradle.properties'
               - 'gradlew'
@@ -67,8 +48,8 @@ jobs:
               - 'core/**'
               - 'tasker-plugin/**'
 
-  build:
-    name: Build debug APK
+  build-release:
+    name: Build release APKs
     needs: changes
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
@@ -90,13 +71,21 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Build APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Build release APK
+        run: ./gradlew --no-daemon :app:assembleRelease
 
-      - name: Upload APK artifact
+      - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-open-ring-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*.apk
+          name: samsung-open-ring-release-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Attach APKs to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/*.apk
