@@ -212,7 +212,6 @@ internal class RingConnection(
             emit("Service discovery OK — ${g.services.size} services found")
 
             var foundTx: BluetoothGattCharacteristic? = null
-            var fallbackTx: BluetoothGattCharacteristic? = null
             for (service in g.services) {
                 val svcShort = service.uuid.toString().substring(0, 8)
                 val charCount = service.characteristics.size
@@ -229,17 +228,12 @@ internal class RingConnection(
                     emit("    CHAR $charShort [${props.joinToString(",")}]")
 
                     val svcId = service.uuid.toString()
-                    if (service.uuid == RingProtocol.DATA_SERVICE_UUID && char.uuid == RingProtocol.TX_UUID) {
+                    if ((svcId.startsWith("00001b1b") || svcId.startsWith("00001b1a"))
+                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
                         foundTx = char
-                    } else if (svcId.startsWith("00001b1b")
-                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
-                        && fallbackTx == null) {
-                        fallbackTx = char
                     }
                 }
             }
-
-            foundTx = foundTx ?: fallbackTx
 
             if (foundTx == null) {
                 emit("TX characteristic NOT FOUND")
@@ -250,22 +244,9 @@ internal class RingConnection(
             txCharacteristic = foundTx
             emit("TX selected: ${foundTx.uuid.toString().substring(0, 8)} on svc ${foundTx.service.uuid.toString().substring(0, 8)}")
 
-            val exactRx = g.services
+            val notifyChars = g.services
                 .flatMap { it.characteristics }
-                .firstOrNull {
-                    it.service.uuid == RingProtocol.DATA_SERVICE_UUID &&
-                        it.uuid == RingProtocol.RX_UUID &&
-                        it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
-                }
-
-            val notifyChars = if (exactRx != null) {
-                listOf(exactRx)
-            } else {
-                g.services
-                    .filter { it.uuid == RingProtocol.DATA_SERVICE_UUID }
-                    .flatMap { it.characteristics }
-                    .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
-            }
+                .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
 
             emit("Subscribing to ${notifyChars.size} NOTIFY characteristics...")
 
