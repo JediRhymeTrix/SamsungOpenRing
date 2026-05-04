@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.UUID
 
 internal class RingConnection(
     private val context: Context,
@@ -28,6 +29,9 @@ internal class RingConnection(
     private var reconnectAttempts = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingSubscriptions = mutableListOf<BluetoothGattCharacteristic>()
+    private val subscribedNotifyChars = mutableListOf<BluetoothGattCharacteristic>()
+    private val pendingUnsubscriptions = mutableListOf<BluetoothGattCharacteristic>()
+    private val importantNotifyChars = mutableSetOf<Pair<UUID, UUID>>()
     private val disconnectAfterDisableTimeout = Runnable {
         if (disconnectAfterDisableAck) {
             emit("Gesture disable ACK timeout — disconnecting anyway")
@@ -35,6 +39,9 @@ internal class RingConnection(
         }
     }
     private var lastRawLogAtMs = 0L
+    private var gestureEnableAckSeen = false
+    private var notifyPruned = false
+    private var notifyPruneInProgress = false
 
     val isConnected: Boolean get() = gatt != null && txCharacteristic != null
 
@@ -212,7 +219,6 @@ internal class RingConnection(
             emit("Service discovery OK — ${g.services.size} services found")
 
             var foundTx: BluetoothGattCharacteristic? = null
-            var fallbackTx: BluetoothGattCharacteristic? = null
             for (service in g.services) {
                 val svcShort = service.uuid.toString().substring(0, 8)
                 val charCount = service.characteristics.size
@@ -229,17 +235,12 @@ internal class RingConnection(
                     emit("    CHAR $charShort [${props.joinToString(",")}]")
 
                     val svcId = service.uuid.toString()
-                    if (service.uuid == RingProtocol.DATA_SERVICE_UUID && char.uuid == RingProtocol.TX_UUID) {
+                    if ((svcId.startsWith("00001b1b") || svcId.startsWith("00001b1a"))
+                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
                         foundTx = char
-                    } else if (svcId.startsWith("00001b1b")
-                        && char.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
-                        && fallbackTx == null) {
-                        fallbackTx = char
                     }
                 }
             }
-
-            foundTx = foundTx ?: fallbackTx
 
             if (foundTx == null) {
                 emit("TX characteristic NOT FOUND")
@@ -250,22 +251,9 @@ internal class RingConnection(
             txCharacteristic = foundTx
             emit("TX selected: ${foundTx.uuid.toString().substring(0, 8)} on svc ${foundTx.service.uuid.toString().substring(0, 8)}")
 
-            val exactRx = g.services
+            val notifyChars = g.services
                 .flatMap { it.characteristics }
-                .firstOrNull {
-                    it.service.uuid == RingProtocol.DATA_SERVICE_UUID &&
-                        it.uuid == RingProtocol.RX_UUID &&
-                        it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
-                }
-
-            val notifyChars = if (exactRx != null) {
-                listOf(exactRx)
-            } else {
-                g.services
-                    .filter { it.uuid == RingProtocol.DATA_SERVICE_UUID }
-                    .flatMap { it.characteristics }
-                    .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
-            }
+                .filter { it.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 }
 
             emit("Subscribing to ${notifyChars.size} NOTIFY characteristics...")
 
@@ -273,6 +261,16 @@ internal class RingConnection(
                 pendingSubscriptions.clear()
                 pendingSubscriptions.addAll(notifyChars)
             }
+            synchronized(subscribedNotifyChars) {
+                subscribedNotifyChars.clear()
+            }
+            synchronized(pendingUnsubscriptions) {
+                pendingUnsubscriptions.clear()
+            }
+            importantNotifyChars.clear()
+            gestureEnableAckSeen = false
+            notifyPruned = false
+            notifyPruneInProgress = false
             subscribeNext(g)
         }
 
@@ -316,8 +314,22 @@ internal class RingConnection(
             g: BluetoothGatt, desc: BluetoothGattDescriptor, status: Int
         ) {
             val charShort = desc.characteristic.uuid.toString().substring(0, 8)
+
+            if (notifyPruneInProgress) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    emit("  CCCD OFF OK: $charShort")
+                } else {
+                    emit("  CCCD OFF FAIL: $charShort (status=$status)")
+                }
+                unsubscribeNext(g)
+                return
+            }
+
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 emit("  CCCD OK: $charShort")
+                synchronized(subscribedNotifyChars) {
+                    subscribedNotifyChars.add(desc.characteristic)
+                }
             } else {
                 emit("  CCCD FAIL: $charShort (status=$status)")
             }
@@ -334,6 +346,8 @@ internal class RingConnection(
             if (RingProtocol.isGestureNotification(value)) {
                 val id = RingProtocol.parseGestureId(value)
                 emit("RECV <- GESTURE DETECTED id=$id [$hex] ch=$channelName char=$charShort")
+                rememberImportantNotifyChar(char)
+                pruneNotifyCharsAfterGesture(g)
                 val event = GestureEvent(gestureId = id)
                 val listener = gestureListener
                 if (listener != null) {
@@ -342,8 +356,13 @@ internal class RingConnection(
             } else if (RingProtocol.isGestureEnableResponse(value)) {
                 val success = RingProtocol.isResponseSuccess(value)
                 emit("RECV <- GESTURE_ENABLE_ACK success=$success [$hex] char=$charShort")
+                if (success) {
+                    gestureEnableAckSeen = true
+                    rememberImportantNotifyChar(char)
+                }
             } else if (RingProtocol.isGestureDisableResponse(value)) {
                 val success = RingProtocol.isResponseSuccess(value)
+                rememberImportantNotifyChar(char)
                 if (disableRequested) {
                     emit("RECV <- GESTURE_DISABLE_ACK success=$success [$hex] char=$charShort (our request)")
                     disableRequested = false
@@ -382,6 +401,75 @@ internal class RingConnection(
             } else {
                 emit("WRITE FAILED on $charShort (status=$status)")
             }
+        }
+    }
+
+    private fun rememberImportantNotifyChar(char: BluetoothGattCharacteristic) {
+        importantNotifyChars.add(char.service.uuid to char.uuid)
+    }
+
+    private fun pruneNotifyCharsAfterGesture(g: BluetoothGatt) {
+        if (notifyPruned || !gestureEnableAckSeen) return
+
+        val keep = importantNotifyChars.toSet()
+        if (keep.isEmpty()) {
+            emit("Skipping notify prune: no important notify characteristics observed")
+            return
+        }
+
+        val toDisable = synchronized(subscribedNotifyChars) {
+            subscribedNotifyChars
+                .filterNot { keep.contains(it.service.uuid to it.uuid) }
+                .toList()
+        }
+
+        if (toDisable.isEmpty()) {
+            notifyPruned = true
+            emit("Notify prune skipped: all subscribed characteristics are important")
+            return
+        }
+
+        notifyPruned = true
+        notifyPruneInProgress = true
+        emit("Pruning ${toDisable.size} unused NOTIFY characteristics after gesture channel confirmed")
+        synchronized(pendingUnsubscriptions) {
+            pendingUnsubscriptions.clear()
+            pendingUnsubscriptions.addAll(toDisable)
+        }
+        unsubscribeNext(g)
+    }
+
+    private fun unsubscribeNext(g: BluetoothGatt) {
+        val char: BluetoothGattCharacteristic?
+        synchronized(pendingUnsubscriptions) {
+            char = if (pendingUnsubscriptions.isNotEmpty()) pendingUnsubscriptions.removeAt(0) else null
+        }
+
+        if (char == null) {
+            notifyPruneInProgress = false
+            emit("Notify prune complete")
+            return
+        }
+
+        val charShort = char.uuid.toString().substring(0, 8)
+        try {
+            g.setCharacteristicNotification(char, false)
+        } catch (e: SecurityException) {
+            emit("  Notify off SecurityException: ${e.message}")
+            unsubscribeNext(g)
+            return
+        }
+
+        val cccd = char.getDescriptor(RingProtocol.CCCD_UUID)
+        if (cccd != null) {
+            emit("  CCCD OFF: $charShort")
+            @Suppress("DEPRECATION")
+            cccd.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            @Suppress("DEPRECATION")
+            g.writeDescriptor(cccd)
+        } else {
+            emit("  Notify off no CCCD: $charShort")
+            unsubscribeNext(g)
         }
     }
 
