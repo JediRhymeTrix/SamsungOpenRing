@@ -19,6 +19,9 @@ class GestureService : Service() {
         private const val KEY_WEBHOOK_URL = "webhook_url"
         const val KEY_VERBOSE_LOGGING = "verbose_logging"
         private const val TASKER_PACKAGE = "net.dinglisch.android.taskerm"
+        private const val REQUEST_OPEN_APP = 10
+        private const val REQUEST_TOGGLE_MANUAL = 11
+        private const val REQUEST_TOGGLE_TRIGGERS = 12
 
         const val ACTION_GESTURE = "io.github.thevellichor.samsungopenring.intent.action.GESTURE"
         const val EXTRA_GESTURE_TYPE = "gesture_type"
@@ -36,6 +39,65 @@ class GestureService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, GestureService::class.java))
+        }
+
+        fun refreshNotification(context: Context) {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            if (manager.activeNotifications.none { it.id == NOTIFICATION_ID }) return
+            ensureNotificationChannel(manager)
+            val notification = buildStatusNotification(context.applicationContext, null)
+            manager.notify(NOTIFICATION_ID, notification)
+        }
+
+        private fun ensureNotificationChannel(manager: NotificationManager) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Gesture Monitoring",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Shows when SamsungOpenRing is monitoring gestures"
+            }
+            manager.createNotificationChannel(channel)
+        }
+
+        fun buildStatusNotification(context: Context, text: String?): Notification {
+            val state = MonitoringControl.getState(context)
+            val contentText = text ?: when {
+                state.pausedForPowerSaver -> "Paused for Battery Saver"
+                state.manualActive -> "Manual monitoring enabled"
+                state.triggersArmed -> "Triggers armed"
+                else -> "Monitoring controls ready"
+            }
+
+            val openIntent = PendingIntent.getActivity(
+                context,
+                REQUEST_OPEN_APP,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val manualIntent = PendingIntent.getBroadcast(
+                context,
+                REQUEST_TOGGLE_MANUAL,
+                Intent(context, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.ACTION_TOGGLE_MANUAL),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val triggersIntent = PendingIntent.getBroadcast(
+                context,
+                REQUEST_TOGGLE_TRIGGERS,
+                Intent(context, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.ACTION_TOGGLE_TRIGGERS),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+
+            return NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle("SamsungOpenRing")
+                .setContentText(contentText)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentIntent(openIntent)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .addAction(0, if (state.manualActive) "Stop manual" else "Start manual", manualIntent)
+                .addAction(0, if (state.triggersArmed) "Disarm triggers" else "Arm triggers", triggersIntent)
+                .build()
         }
     }
 
@@ -191,35 +253,20 @@ class GestureService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Gesture Monitoring",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Shows when SamsungOpenRing is monitoring gestures"
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        getSystemService(NotificationManager::class.java)?.let(::ensureNotificationChannel)
     }
 
     private fun buildNotification(text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SamsungOpenRing")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
+        return buildStatusNotification(this, text)
     }
 
     private fun updateNotification(text: String) {
-        if (lastNotificationText == text) return
-        lastNotificationText = text
+        val state = MonitoringControl.getState(this)
+        val stateKey = "$text|${state.manualActive}|${state.triggersArmed}|${state.pausedForPowerSaver}"
+        if (lastNotificationText == stateKey) return
+        lastNotificationText = stateKey
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(text))
     }
+
 }

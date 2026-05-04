@@ -47,6 +47,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val monitoringStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            updateMonitoringStatus(MonitoringControl.getState(this@MainActivity))
+        }
+    }
+
     private val logListener: (String) -> Unit = { line ->
         runOnUiThread {
             val current = eventLog.text.toString()
@@ -91,15 +97,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.startButton).setOnClickListener {
             ensureBluetooth {
                 saveWebhookUrl()
-                prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, true).apply()
-                GestureService.start(this)
-                statusText.text = "Starting..."
+                showControlResult(MonitoringControl.startManual(this))
             }
         }
         findViewById<MaterialButton>(R.id.stopButton).setOnClickListener {
-            prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, false).apply()
-            GestureService.stop(this)
-            statusText.text = "Stopped"
+            showControlResult(MonitoringControl.stopManual(this))
         }
 
         // --- Triggers ---
@@ -108,16 +110,10 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.armTriggersButton).setOnClickListener {
             saveWebhookUrl()
-            triggerManager.armAll()
-            EventLog.log(this, "Triggers armed")
-            statusText.text = "Triggers armed"
+            showControlResult(MonitoringControl.armTriggers(this))
         }
         findViewById<MaterialButton>(R.id.disarmTriggersButton).setOnClickListener {
-            triggerManager.disarmAll()
-            prefs.edit().putBoolean(KEY_MANUAL_MONITORING_ACTIVE, false).apply()
-            GestureService.stop(this)
-            EventLog.log(this, "Triggers disarmed")
-            statusText.text = "Disarmed"
+            showControlResult(MonitoringControl.disarmTriggers(this))
         }
         // --- Advanced ---
         findViewById<TextView>(R.id.readLogsStatus).text = ShizukuHelper.getStatusText(this)
@@ -164,31 +160,34 @@ class MainActivity : AppCompatActivity() {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
             addAction(PowerSaverPolicy.ACTION_POWER_STATE_CHANGED)
         }, RECEIVER_NOT_EXPORTED)
+        registerReceiver(monitoringStateReceiver, IntentFilter(MonitoringControl.ACTION_STATE_CHANGED), RECEIVER_NOT_EXPORTED)
         eventLog.text = EventLog.getRecentLines(this)
         findViewById<TextView>(R.id.readLogsStatus).text = ShizukuHelper.getStatusText(this)
-        applyPowerSaverPolicy()
+        updateMonitoringStatus(MonitoringControl.syncAfterPowerPolicy(this))
     }
 
     override fun onPause() {
         super.onPause()
         unregisterReceiver(powerStateReceiver)
+        unregisterReceiver(monitoringStateReceiver)
         EventLog.removeListener(logListener)
     }
 
     private fun applyPowerSaverPolicy() {
-        if (PowerSaverPolicy.shouldPause(this)) {
-            triggerManager.pauseForPowerSaver()
-            GestureService.stop(this)
-            statusText.text = "Paused for Battery Saver"
-            return
-        }
+        updateMonitoringStatus(MonitoringControl.syncAfterPowerPolicy(this))
+    }
 
-        if (triggerManager.wereTriggersArmed()) {
-            triggerManager.resumeAfterPowerSaver()
-            statusText.text = "Triggers armed"
-        } else if (prefs.getBoolean(KEY_MANUAL_MONITORING_ACTIVE, false)) {
-            GestureService.start(this)
-            statusText.text = "Starting..."
+    private fun showControlResult(result: MonitoringControl.Result) {
+        Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
+        updateMonitoringStatus(result.state)
+    }
+
+    private fun updateMonitoringStatus(state: MonitoringControl.State) {
+        statusText.text = when {
+            state.pausedForPowerSaver -> "Paused for Battery Saver"
+            state.manualActive -> "Manual monitoring enabled"
+            state.triggersArmed -> "Triggers armed"
+            else -> "Stopped"
         }
     }
 
